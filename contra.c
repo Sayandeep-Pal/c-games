@@ -1926,23 +1926,6 @@ static void DrawGame(GameState *g) {
 
                 Color tint = flash ? WHITE : (Color){ 240, 100, 255, 255 }; // Violet Cyber tint
                 DrawTexturePro(texPlayerSheet, source_rect, (Rectangle){ dx, dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, 0.0f, tint);
-
-                // Laser aim guide line (telegraphed warning!)
-                Vector2 target_pos = (Vector2){ p->pos.x + p->size.x/2, p->pos.y + p->size.y/2 };
-                Vector2 origin_pos = (Vector2){ e->pos.x + (e->facing_right ? 25 : 7), e->pos.y + 12 };
-                
-                float ratio = e->shoot_timer / 1.8f;
-                Color laser_color;
-                float line_thick = 1.0f;
-                if (ratio < 0.6f) {
-                    laser_color = (Color){ 50, 255, 120, 45 };
-                } else if (ratio < 0.85f) {
-                    laser_color = (Color){ 255, 40, 40, 95 };
-                } else {
-                    laser_color = (Color){ 255, 0, 0, (unsigned char)(160 + sinf(t * 30.0f) * 95) };
-                    line_thick = 2.0f;
-                }
-                DrawLineEx(origin_pos, target_pos, line_thick, laser_color);
                 break;
             }
             case ENEMY_TURRET: {

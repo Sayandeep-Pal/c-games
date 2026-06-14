@@ -22,8 +22,8 @@
 
 /* ─────────────────────────── Constants ─────────────────────────── */
 
-#define SCREEN_W        1920
-#define SCREEN_H        1080
+#define SCREEN_W        1024
+#define SCREEN_H        720
 #define GRAVITY         1600.0f
 #define JUMP_FORCE      -620.0f
 #define MOVE_SPEED      280.0f
@@ -138,7 +138,6 @@ typedef struct {
 
 typedef struct {
     Vector2 pos;
-    float   base_y;
     Vector2 vel;
     WeaponType drops_weapon;
     bool    active;
@@ -234,44 +233,43 @@ void SynthAudioCallback(void *buffer, unsigned int frames) {
     float sample_rate = 44100.0f;
     static float bass_phase = 0.0f;
     static float filter_val = 0.0f;
-    static float kick_phase = 0.0f;
-
+    
     int samples_per_step = (int)(sample_rate * (60.0f / seq_tempo) / 4.0f); // 16th notes
-    if (samples_per_step < 1) samples_per_step = 1;
-
+    
     for (unsigned int i = 0; i < frames; i++) {
         int step = (audio_tick / samples_per_step) % 16;
         int sub_step = audio_tick % samples_per_step;
         audio_tick++;
-
+        
         // Bass oscillator freq
         int midi_note = bass_notes[step];
         float freq = 440.0f * powf(2.0f, (midi_note - 69.0f) / 12.0f);
-
+        
         // Sawtooth osc
         bass_phase += freq / sample_rate;
         if (bass_phase >= 1.0f) bass_phase -= 1.0f;
         float osc = 2.0f * bass_phase - 1.0f;
-
+        
         float step_t = (float)sub_step / samples_per_step;
         float env = expf(-6.0f * step_t);
-
+        
         // LPF filter sweep
         float target_cutoff = 0.04f + 0.16f * env;
         filter_val += (osc - filter_val) * target_cutoff;
         float bass_out = filter_val * env * 0.35f;
-
+        
         // Cyber kick drum on beat
         float kick = 0.0f;
         if (step % 4 == 0) {
             float kick_t = (float)sub_step / samples_per_step;
             if (kick_t < 0.4f) {
                 float kick_freq = 160.0f * expf(-24.0f * kick_t) + 38.0f;
+                static float kick_phase = 0.0f;
                 kick_phase += kick_freq / sample_rate;
                 kick = sinf(2.0f * PI * kick_phase) * expf(-9.0f * kick_t) * 0.75f;
             }
         }
-
+        
         // Snare / Hi-hat noises
         float perc = 0.0f;
         if (step % 8 == 4) { // snare
@@ -284,25 +282,25 @@ void SynthAudioCallback(void *buffer, unsigned int frames) {
             float hh_env = expf(-40.0f * hh_t);
             perc += ((float)rand() / RAND_MAX * 2.0f - 1.0f) * hh_env * 0.1f;
         }
-
+        
         float music_mix = bass_out + kick + perc;
-
+        
         // SFX channels mixing
         float sfx_mix = 0.0f;
         for (int ch = 0; ch < MAX_SFX_CHANNELS; ch++) {
             if (!sfx_channels[ch].active) continue;
-
+            
             float t = sfx_channels[ch].time;
             float dur = sfx_channels[ch].length;
-
+            
             if (t >= dur) {
                 sfx_channels[ch].active = false;
                 continue;
             }
-
+            
             float progress = t / dur;
             float sfx_env = expf(-6.0f * progress);
-
+            
             float val = 0.0f;
             if (sfx_channels[ch].noise) {
                 val = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * sfx_env * sfx_channels[ch].volume;
@@ -312,15 +310,15 @@ void SynthAudioCallback(void *buffer, unsigned int frames) {
                 if (sfx_channels[ch].phase >= 1.0f) sfx_channels[ch].phase -= 1.0f;
                 val = sinf(2.0f * PI * sfx_channels[ch].phase) * sfx_env * sfx_channels[ch].volume;
             }
-
+            
             sfx_mix += val;
             sfx_channels[ch].time += 1.0f / sample_rate;
         }
-
+        
         float final_mix = music_mix * 0.35f + sfx_mix * 0.65f;
         if (final_mix > 1.0f) final_mix = 1.0f;
         if (final_mix < -1.0f) final_mix = -1.0f;
-
+        
         out[i] = (short)(final_mix * 11000.0f);
     }
 }
@@ -331,234 +329,81 @@ static Texture2D texPlayer;
 static Texture2D texRunner;
 static Texture2D texSniper;
 static Texture2D texTurret;
+static Texture2D texPlayerSheet;
+static Texture2D texTileset;
+static Texture2D texBackground;
 
-/* Helper: draw a filled rectangle on an Image using float coords (rounded) */
-static void ImgRect(Image *img, float x, float y, float w, float h, Color c) {
-    ImageDrawRectangle(img, (int)roundf(x), (int)roundf(y), (int)roundf(w), (int)roundf(h), c);
-}
-
-/*
- * Player commando sprite (64x64), facing RIGHT.
- * Cyan/blue powered armor, pink visor, backpack thruster, rifle held forward.
- * Designed with clear silhouette: helmet, torso, legs, arms, weapon.
- */
 Texture2D GeneratePlayerTexture() {
     Image img = GenImageColor(64, 64, BLANK);
-
-    Color armorDark   = (Color){ 10, 60, 110, 255 };
-    Color armorMid    = (Color){ 0, 140, 210, 255 };
-    Color armorLight  = (Color){ 110, 220, 255, 255 };
-    Color visor       = COL_NEON_PINK;
-    Color jointGray   = (Color){ 40, 50, 65, 255 };
-    Color gunMetal    = (Color){ 70, 80, 95, 255 };
-    Color gunGlow     = COL_NEON_BLUE;
-
-    // Backpack thruster (behind body, left side)
-    ImgRect(&img, 14, 22, 8, 22, armorDark);
-    ImgRect(&img, 15, 24, 2, 18, (Color){ 255, 160, 60, 255 }); // exhaust glow strip
-    ImgRect(&img, 14, 42, 8, 4, (Color){ 255, 200, 80, 200 });  // thruster flame
-
-    // Legs (slightly staggered stance)
-    ImgRect(&img, 26, 46, 8, 14, armorDark);   // back leg
-    ImgRect(&img, 36, 46, 9, 14, armorMid);    // front leg
-    ImgRect(&img, 25, 58, 10, 4, jointGray);   // back boot
-    ImgRect(&img, 35, 58, 11, 4, jointGray);   // front boot
-
-    // Torso
-    ImgRect(&img, 24, 26, 22, 22, armorMid);
-    ImgRect(&img, 24, 26, 22, 6, armorLight);     // chest plate top highlight
-    ImgRect(&img, 30, 33, 10, 10, armorDark);     // chest core recess
-    ImgRect(&img, 32, 35, 6, 6, gunGlow);         // glowing reactor core
-    ImgRect(&img, 24, 46, 22, 4, armorDark);      // belt
-
+    
+    // Draw neon blue armored cyber suit
+    ImageDrawCircle(&img, 32, 32, 22, (Color){ 0, 100, 200, 255 }); // shadow base
+    ImageDrawCircle(&img, 32, 32, 18, (Color){ 0, 180, 255, 255 }); // body base
+    
+    // Chest piece detail
+    ImageDrawRectangle(&img, 24, 26, 16, 12, (Color){ 120, 240, 255, 255 });
+    ImageDrawRectangle(&img, 28, 28, 8, 8, (Color){ 0, 180, 255, 255 });
+    
     // Shoulder pads
-    ImgRect(&img, 20, 24, 8, 10, armorLight);
-    ImgRect(&img, 44, 24, 8, 10, armorLight);
-    ImgRect(&img, 20, 24, 8, 3, WHITE);
-    ImgRect(&img, 44, 24, 8, 3, WHITE);
-
-    // Back arm (holding rifle stock, partially behind torso)
-    ImgRect(&img, 42, 30, 6, 16, armorDark);
-
-    // Head / helmet
-    ImgRect(&img, 30, 12, 16, 14, armorMid);
-    ImgRect(&img, 30, 12, 16, 4, armorLight);     // helmet crest
-    ImgRect(&img, 30, 22, 16, 4, armorDark);      // jaw guard
-    // Visor (glowing pink, angled forward)
-    ImgRect(&img, 38, 16, 10, 5, visor);
-    ImgRect(&img, 44, 17, 3, 3, WHITE);           // visor glint
-    // Antenna
-    ImgRect(&img, 33, 8, 2, 5, gunMetal);
-    ImgRect(&img, 32, 6, 4, 3, COL_NEON_GREEN);   // antenna light
-
-    // Front arm extended forward gripping rifle
-    ImgRect(&img, 40, 32, 14, 6, armorLight);     // forearm
-    ImgRect(&img, 50, 31, 6, 8, armorDark);       // gloved hand
-
-    // Rifle, extending off the right edge (forward-facing)
-    ImgRect(&img, 46, 32, 22, 4, gunMetal);       // barrel
-    ImgRect(&img, 64, 32, 4, 4, (Color){ 255, 240, 180, 220 }); // muzzle glow tip
-    ImgRect(&img, 48, 36, 10, 6, jointGray);      // receiver/magazine
-    ImgRect(&img, 50, 28, 4, 4, gunGlow);         // scope/sight glow
-
+    ImageDrawCircle(&img, 16, 32, 6, (Color){ 0, 100, 200, 255 });
+    ImageDrawCircle(&img, 48, 32, 6, (Color){ 0, 100, 200, 255 });
+    
+    // Helmet
+    ImageDrawCircle(&img, 32, 16, 10, (Color){ 0, 180, 255, 255 });
+    // Glowing pink/neon visor
+    ImageDrawRectangle(&img, 26, 14, 12, 4, COL_NEON_PINK);
+    
+    // Belt / straps
+    ImageDrawRectangle(&img, 20, 40, 24, 4, COL_CYBER_PURPLE);
+    
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
 }
 
-/*
- * Runner enemy sprite (64x64), facing RIGHT.
- * Red aggressive light-armor trooper, mid-stride running pose, SMG.
- */
 Texture2D GenerateRunnerTexture() {
     Image img = GenImageColor(64, 64, BLANK);
-
-    Color armorDark  = (Color){ 90, 15, 15, 255 };
-    Color armorMid   = (Color){ 190, 40, 40, 255 };
-    Color armorLight = (Color){ 240, 100, 90, 255 };
-    Color visor      = COL_NEON_BLUE;
-    Color gunMetal   = (Color){ 60, 60, 70, 255 };
-    Color jointGray  = (Color){ 35, 35, 45, 255 };
-
-    // Running legs (one forward, one back, mid-stride)
-    ImgRect(&img, 22, 46, 9, 13, armorDark);   // back leg, raised
-    ImgRect(&img, 21, 56, 11, 4, jointGray);   // back boot, lifted
-    ImgRect(&img, 36, 48, 9, 16, armorMid);    // front leg, planted
-    ImgRect(&img, 35, 60, 12, 4, jointGray);   // front boot
-
-    // Torso leaning forward (running posture)
-    ImgRect(&img, 22, 26, 22, 22, armorMid);
-    ImgRect(&img, 22, 26, 22, 5, armorLight);    // chest highlight
-    ImgRect(&img, 28, 34, 10, 9, armorDark);     // chest recess
-    ImgRect(&img, 30, 36, 6, 5, COL_NEON_ORANGE); // core glow
-    ImgRect(&img, 22, 46, 22, 4, armorDark);     // belt
-
-    // Shoulder pads
-    ImgRect(&img, 18, 24, 8, 9, armorLight);
-    ImgRect(&img, 42, 24, 8, 9, armorLight);
-
-    // Back arm swung backward
-    ImgRect(&img, 16, 30, 7, 14, armorDark);
-
-    // Head / helmet (leaning forward)
-    ImgRect(&img, 30, 12, 15, 13, armorMid);
-    ImgRect(&img, 30, 12, 15, 4, armorLight);
+    
+    // Red cyber-runner armored suit
+    ImageDrawCircle(&img, 32, 32, 20, (Color){ 160, 30, 30, 255 });
+    ImageDrawCircle(&img, 32, 32, 16, (Color){ 220, 60, 60, 255 });
+    
     // Visor
-    ImgRect(&img, 38, 16, 9, 4, visor);
-    ImgRect(&img, 44, 17, 2, 2, WHITE);
-
-    // Front arm extended, gripping SMG
-    ImgRect(&img, 40, 30, 13, 6, armorLight);
-    ImgRect(&img, 49, 29, 6, 8, armorDark);   // gloved hand
-
-    // SMG weapon
-    ImgRect(&img, 44, 31, 18, 4, gunMetal);
-    ImgRect(&img, 60, 31, 3, 3, (Color){ 255, 180, 90, 220 }); // muzzle
-    ImgRect(&img, 46, 35, 6, 6, jointGray);   // magazine
-
+    ImageDrawRectangle(&img, 26, 26, 12, 3, COL_NEON_BLUE);
+    
+    // Metal chest core
+    ImageDrawCircle(&img, 32, 36, 5, (Color){ 80, 80, 90, 255 });
+    
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
 }
 
-/*
- * Sniper enemy sprite (64x64), facing RIGHT.
- * Purple stealth-armored marksman, crouched stance, long rifle.
- */
 Texture2D GenerateSniperTexture() {
     Image img = GenImageColor(64, 64, BLANK);
-
-    Color armorDark  = (Color){ 70, 15, 80, 255 };
-    Color armorMid   = (Color){ 150, 50, 170, 255 };
-    Color armorLight = (Color){ 210, 130, 230, 255 };
-    Color visor      = COL_NEON_GREEN;
-    Color gunMetal   = (Color){ 55, 50, 65, 255 };
-    Color jointGray  = (Color){ 35, 30, 45, 255 };
-
-    // Legs (crouched / wide stance)
-    ImgRect(&img, 24, 44, 9, 16, armorDark);
-    ImgRect(&img, 35, 44, 9, 16, armorMid);
-    ImgRect(&img, 22, 58, 11, 4, jointGray);
-    ImgRect(&img, 34, 58, 12, 4, jointGray);
-
-    // Torso (slightly hunched forward)
-    ImgRect(&img, 23, 26, 21, 20, armorMid);
-    ImgRect(&img, 23, 26, 21, 5, armorLight);
-    ImgRect(&img, 29, 33, 9, 9, armorDark);
-    ImgRect(&img, 31, 35, 5, 5, visor);        // glowing core, matches visor
-    ImgRect(&img, 23, 44, 21, 4, armorDark);   // belt
-
-    // Shoulder pads
-    ImgRect(&img, 19, 24, 8, 9, armorLight);
-    ImgRect(&img, 41, 24, 8, 9, armorLight);
-
-    // Back arm steadying rifle underneath
-    ImgRect(&img, 42, 34, 6, 14, armorDark);
-
-    // Head / hood
-    ImgRect(&img, 29, 12, 15, 13, armorMid);
-    ImgRect(&img, 29, 12, 15, 4, armorLight);
-    ImgRect(&img, 29, 22, 15, 4, armorDark);   // hood edge
-    // Visor (scope-eye glow)
-    ImgRect(&img, 37, 16, 9, 4, visor);
-    ImgRect(&img, 43, 17, 2, 2, WHITE);
-
-    // Front arm gripping long rifle
-    ImgRect(&img, 38, 30, 13, 6, armorLight);
-    ImgRect(&img, 48, 29, 6, 8, armorDark);
-
-    // Long sniper rifle with scope
-    ImgRect(&img, 42, 31, 26, 4, gunMetal);
-    ImgRect(&img, 66, 31, 3, 3, (Color){ 200, 255, 200, 220 }); // muzzle
-    ImgRect(&img, 44, 35, 8, 6, jointGray);   // stock/magazine
-    ImgRect(&img, 50, 25, 10, 4, gunMetal);   // scope body
-    ImgRect(&img, 58, 24, 3, 3, visor);       // scope lens glow
-
+    
+    // Purple elite sniper suit
+    ImageDrawCircle(&img, 32, 32, 20, (Color){ 120, 30, 120, 255 });
+    ImageDrawCircle(&img, 32, 32, 16, (Color){ 180, 60, 180, 255 });
+    
+    // Glowing green visor
+    ImageDrawRectangle(&img, 26, 26, 12, 3, COL_NEON_GREEN);
+    
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
 }
 
-/*
- * Wall turret sprite (64x64), faces toward player dynamically (barrel drawn separately).
- * Mechanical mounted gun pod with armored base and glowing targeting lens.
- */
 Texture2D GenerateTurretTexture() {
     Image img = GenImageColor(64, 64, BLANK);
-
-    Color baseDark   = (Color){ 40, 40, 50, 255 };
-    Color baseMid    = (Color){ 80, 80, 95, 255 };
-    Color baseLight  = (Color){ 140, 140, 160, 255 };
-    Color lensGlow   = COL_NEON_ORANGE;
-    Color bolt       = (Color){ 200, 200, 215, 255 };
-
-    // Wall mount bracket (back plate)
-    ImgRect(&img, 4, 8, 56, 48, baseDark);
-    ImgRect(&img, 4, 8, 56, 6, baseLight);   // top highlight
-    ImgRect(&img, 4, 50, 56, 6, (Color){ 20, 20, 28, 255 }); // bottom shadow
-
-    // Corner bolts
-    ImgRect(&img, 8, 12, 4, 4, bolt);
-    ImgRect(&img, 52, 12, 4, 4, bolt);
-    ImgRect(&img, 8, 48, 4, 4, bolt);
-    ImgRect(&img, 52, 48, 4, 4, bolt);
-
-    // Rotating turret housing (circle approximated with rects/octagon)
-    ImageDrawCircle(&img, 32, 32, 18, baseMid);
-    ImageDrawCircle(&img, 32, 32, 18, baseMid);
-    ImageDrawCircleLines(&img, 32, 32, 18, baseLight);
-    ImageDrawCircle(&img, 32, 32, 12, baseDark);
-
-    // Central targeting lens (glows orange, color-tinted on hit-flash externally)
-    ImageDrawCircle(&img, 32, 32, 7, lensGlow);
-    ImageDrawCircle(&img, 32, 32, 3, WHITE);
-
-    // Vent slits
-    ImgRect(&img, 12, 30, 6, 2, (Color){ 20, 20, 28, 255 });
-    ImgRect(&img, 12, 34, 6, 2, (Color){ 20, 20, 28, 255 });
-    ImgRect(&img, 46, 30, 6, 2, (Color){ 20, 20, 28, 255 });
-    ImgRect(&img, 46, 34, 6, 2, (Color){ 20, 20, 28, 255 });
-
+    
+    // Mechanical wall turret base
+    ImageDrawCircle(&img, 32, 32, 24, (Color){ 60, 60, 70, 255 });
+    ImageDrawCircle(&img, 32, 32, 16, (Color){ 100, 100, 110, 255 });
+    
+    // Core lens
+    ImageDrawCircle(&img, 32, 32, 8, COL_NEON_ORANGE);
+    
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
@@ -579,6 +424,8 @@ static void SpawnDust(GameState *g, Vector2 pos, int count);
 static bool CheckTileCollision(Level *lv, Vector2 pos, Vector2 size, float *push_x, float *push_y, bool *hazard_hit);
 static bool CheckTileCollisionX(Level *lv, Vector2 pos, Vector2 size, float *push_x, bool *hazard_hit);
 static bool CheckTileCollisionY(Level *lv, Vector2 pos, Vector2 size, float *push_y, bool *hazard_hit);
+static bool CheckRayCollisionRec2D(Vector2 start, Vector2 dir, Rectangle rect, float *t_collision);
+static bool IsEnemyInAimLine(GameState *g, Vector2 spawn_pos, Vector2 aim);
 
 /* ─────────────────────────── Level Builder ─────────────────────────── */
 
@@ -697,8 +544,8 @@ static void LoadLevel(GameState *g, int level_idx) {
             lv->platform_color = COL_NEON_PINK;
 
             // Ground floor leading to the boss
-            AddPlatform(lv, 0, 520, 1400, 80, COL_NEON_PINK, false);
-
+            AddPlatform(lv, 0, 520, 1900, 80, COL_NEON_PINK, false);
+            
             // Floating sniper platform before boss
             AddPlatform(lv, 300, 400, 200, 20, COL_NEON_BLUE, false);
             AddPlatform(lv, 600, 300, 200, 20, COL_NEON_BLUE, false);
@@ -745,7 +592,7 @@ static void InitGame(GameState *g) {
     g->player.weapon     = WEAPON_RIFLE;
     g->player.size       = (Vector2){ 32, 48 };
     g->player.alive      = true;
-
+    
     // Juice
     g->player.squash_x = 1.0f;
     g->player.squash_y = 1.0f;
@@ -819,7 +666,7 @@ static void UpdateParticles(GameState *g, float dt) {
             // simple collision with platforms
             for (int k = 0; k < lv->platform_count; k++) {
                 Rectangle r = lv->platforms[k].rect;
-                if (!lv->platforms[k].is_hazard &&
+                if (!lv->platforms[k].is_hazard && 
                     p->pos.x >= r.x && p->pos.x <= r.x + r.width &&
                     p->pos.y >= r.y && p->pos.y <= r.y + 8.0f && p->vel.y > 0) {
                     p->pos.y = r.y;
@@ -832,7 +679,7 @@ static void UpdateParticles(GameState *g, float dt) {
             p->vel.y -= 120.0f * dt; // float up
             p->vel.x *= 0.94f; // friction
             p->size += dt * 10.0f; // expand
-
+            
             float pct = p->life / p->max_life;
             if (pct > 0.6f) {
                 p->color = (Color){ 255, (unsigned char)(255 * (pct - 0.6f) / 0.4f), 40, 255 };
@@ -889,11 +736,11 @@ static void SpawnEnemy(GameState *g, EnemyType type, float x, float y) {
                 case ENEMY_BOSS_LEFT_TURRET:
                 case ENEMY_BOSS_RIGHT_TURRET:
                     e->size = (Vector2){ 40, 40 };
-                    e->health = 250.0f;
+                    e->health = 120.0f;
                     break;
                 case ENEMY_BOSS_CORE:
                     e->size = (Vector2){ 64, 80 };
-                    e->health = 600.0f;
+                    e->health = 300.0f;
                     e->boss_core_open = false;
                     break;
             }
@@ -908,8 +755,7 @@ static void SpawnCapsule(GameState *g, float x, float y, WeaponType drops) {
         if (!g->capsules[i].active) {
             Capsule *c = &g->capsules[i];
             c->pos = (Vector2){ x, y };
-            c->base_y = y;
-            c->vel = (Vector2){ 80.0f, 0.0f };
+            c->vel = (Vector2){ 80.0f, sinf(x) * 40.0f }; // sinewave float
             c->drops_weapon = drops;
             c->active = true;
             return;
@@ -918,6 +764,72 @@ static void SpawnCapsule(GameState *g, float x, float y, WeaponType drops) {
 }
 
 /* ─────────────────────────── Collision Detection ─────────────────────────── */
+
+static bool CheckRayCollisionRec2D(Vector2 start, Vector2 dir, Rectangle rect, float *t_collision) {
+    float tmin = -999999.0f;
+    float tmax = 999999.0f;
+
+    if (dir.x != 0.0f) {
+        float tx1 = (rect.x - start.x) / dir.x;
+        float tx2 = (rect.x + rect.width - start.x) / dir.x;
+        tmin = fmaxf(tmin, fminf(tx1, tx2));
+        tmax = fminf(tmax, fmaxf(tx1, tx2));
+    } else {
+        if (start.x < rect.x || start.x > rect.x + rect.width) return false;
+    }
+
+    if (dir.y != 0.0f) {
+        float ty1 = (rect.y - start.y) / dir.y;
+        float ty2 = (rect.y + rect.height - start.y) / dir.y;
+        tmin = fmaxf(tmin, fminf(ty1, ty2));
+        tmax = fminf(tmax, fmaxf(ty1, ty2));
+    } else {
+        if (start.y < rect.y || start.y > rect.y + rect.height) return false;
+    }
+
+    if (tmax >= tmin && tmax >= 0.0f) {
+        *t_collision = tmin >= 0.0f ? tmin : tmax;
+        return true;
+    }
+    return false;
+}
+
+static bool IsEnemyInAimLine(GameState *g, Vector2 spawn_pos, Vector2 aim) {
+    Level *lv = &g->levels[g->current_level];
+    float closest_enemy_t = 999999.0f;
+    bool hit_enemy = false;
+
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g->enemies[i];
+        if (!e->active) continue;
+
+        Rectangle rect = { e->pos.x, e->pos.y, e->size.x, e->size.y };
+        float t_collision;
+        if (CheckRayCollisionRec2D(spawn_pos, aim, rect, &t_collision)) {
+            if (t_collision >= 0.0f && t_collision < closest_enemy_t && t_collision < 900.0f) {
+                closest_enemy_t = t_collision;
+                hit_enemy = true;
+            }
+        }
+    }
+
+    if (!hit_enemy) return false;
+
+    // Check if any wall blocks the path to the closest enemy
+    for (int i = 0; i < lv->platform_count; i++) {
+        Platform p = lv->platforms[i];
+        if (p.is_hazard) continue;
+
+        float t_wall;
+        if (CheckRayCollisionRec2D(spawn_pos, aim, p.rect, &t_wall)) {
+            if (t_wall >= 0.0f && t_wall < closest_enemy_t) {
+                return false; // wall blocks!
+            }
+        }
+    }
+
+    return true;
+}
 
 static bool CheckCollisionRecs2(Vector2 pos1, Vector2 size1, Vector2 pos2, Vector2 size2) {
     return (pos1.x < pos2.x + size2.x && pos1.x + size1.x > pos2.x &&
@@ -935,7 +847,7 @@ static bool CheckTileCollisionX(Level *lv, Vector2 pos, Vector2 size, float *pus
 
         if (pos.x < pr.x + pr.width && pos.x + size.x > pr.x &&
             pos.y < pr.y + pr.height && pos.y + size.y > pr.y) {
-
+            
             if (p.is_hazard) {
                 *hazard_hit = true;
                 continue;
@@ -951,7 +863,7 @@ static bool CheckTileCollisionX(Level *lv, Vector2 pos, Vector2 size, float *pus
                 overlap_x = (pr.x + pr.width) - pos.x;
                 dir_x = overlap_x;
             }
-
+            
             if (fabsf(dir_x) > fabsf(*push_x)) {
                 *push_x = dir_x;
             }
@@ -971,7 +883,7 @@ static bool CheckTileCollisionY(Level *lv, Vector2 pos, Vector2 size, float *pus
 
         if (pos.x < pr.x + pr.width && pos.x + size.x > pr.x &&
             pos.y < pr.y + pr.height && pos.y + size.y > pr.y) {
-
+            
             if (p.is_hazard) {
                 *hazard_hit = true;
                 continue;
@@ -987,7 +899,7 @@ static bool CheckTileCollisionY(Level *lv, Vector2 pos, Vector2 size, float *pus
                 overlap_y = (pr.y + pr.height) - pos.y;
                 dir_y = overlap_y;
             }
-
+            
             if (fabsf(dir_y) > fabsf(*push_y)) {
                 *push_y = dir_y;
             }
@@ -1008,7 +920,7 @@ static bool CheckTileCollision(Level *lv, Vector2 pos, Vector2 size, float *push
 
         if (pos.x < pr.x + pr.width && pos.x + size.x > pr.x &&
             pos.y < pr.y + pr.height && pos.y + size.y > pr.y) {
-
+            
             if (p.is_hazard) {
                 *hazard_hit = true;
                 continue;
@@ -1070,7 +982,8 @@ static void FirePlayerWeapon(GameState *g, Vector2 aim) {
     if (p->shoot_cooldown > 0) return;
     p->shoot_cooldown = rate;
 
-    Vector2 spawn_pos = (Vector2){ p->pos.x + p->size.x/2.0f + aim.x * 20.0f, p->pos.y + p->size.y/2.5f + aim.y * 20.0f };
+    bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+    Vector2 spawn_pos = (Vector2){ p->pos.x + p->size.x/2.0f + aim.x * 20.0f, p->pos.y + (is_crouching ? p->size.y * 0.7f : p->size.y/2.5f) + aim.y * 20.0f };
 
     // Play SFX & Spawn Casings
     switch (p->weapon) {
@@ -1174,10 +1087,10 @@ static void DamagePlayer(GameState *g, float dmg) {
 
     p->shield -= dmg;
     g->camera_shake = 0.35f;
-
+    
     // Play Hurt Sound
     PlaySynthSFX(180.0f, 60.0f, 0.22f, 0.6f, true); // heavy noisy impact grunt
-
+    
     AddParticleEx(g, (Vector2){ p->pos.x + p->size.x/2, p->pos.y + p->size.y/2 }, COL_NEON_PINK, 200.0f, 4.5f, PARTICLE_SPARK, 0.6f, 15);
 
     if (p->shield <= 0) {
@@ -1185,7 +1098,7 @@ static void DamagePlayer(GameState *g, float dmg) {
         p->lives--;
         // Explosion sound
         PlaySynthSFX(120.0f, 30.0f, 0.6f, 0.8f, true);
-
+        
         if (p->lives < 0) {
             p->alive = false;
             g->screen = SCREEN_GAMEOVER;
@@ -1263,7 +1176,12 @@ static void UpdateGame(GameState *g, float dt) {
             if (p->dash_ghost_count < 3) p->dash_ghost_count++;
         }
     } else {
-        p->vel.x = move_x * MOVE_SPEED;
+        bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+        if (is_crouching) {
+            p->vel.x = 0;
+        } else {
+            p->vel.x = move_x * MOVE_SPEED;
+        }
 
         // Apply Gravity
         p->vel.y += GRAVITY * dt;
@@ -1345,7 +1263,7 @@ static void UpdateGame(GameState *g, float dt) {
     // Move Y (Split Axis Resolution)
     p->pos.y += p->vel.y * dt;
     p->on_ground = false;
-
+    
     CheckTileCollisionY(lv, p->pos, p->size, &py, &hazard_hit);
     p->pos.y += py;
     if (py != 0) {
@@ -1366,6 +1284,8 @@ static void UpdateGame(GameState *g, float dt) {
     }
 
     /* ── Player Aim Direction ── */
+    bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+
     Vector2 aim = { 1.0f, 0.0f };
     if (p->facing_right) aim.x = 1.0f;
     else aim.x = -1.0f;
@@ -1376,22 +1296,36 @@ static void UpdateGame(GameState *g, float dt) {
     if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) ady -= 1.0f;
     if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) ady += 1.0f;
 
-    if (ady < 0) { // aiming up
-        aim.y = -1.0f;
-        if (adx == 0) aim.x = 0; // straight up
-    } else if (ady > 0 && !p->on_ground) { // aiming down in air
-        aim.y = 1.0f;
-        if (adx == 0) aim.x = 0; // straight down
+    if (is_crouching) {
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+            aim.y = -1.0f;
+            if (adx != 0) aim.x = adx;
+            else aim.x = 0;
+        } else {
+            aim.y = 0;
+            if (adx != 0) aim.x = adx;
+        }
     } else {
-        aim.y = 0;
-        if (adx != 0) aim.x = adx;
+        if (ady < 0) { // aiming up
+            aim.y = -1.0f;
+            if (adx == 0) aim.x = 0; // straight up
+        } else if (ady > 0 && !p->on_ground) { // aiming down in air
+            aim.y = 1.0f;
+            if (adx == 0) aim.x = 0; // straight down
+        } else {
+            aim.y = 0;
+            if (adx != 0) aim.x = adx;
+        }
     }
     // Normalize
     float aim_len = sqrtf(aim.x*aim.x + aim.y*aim.y);
     if (aim_len > 0) { aim.x /= aim_len; aim.y /= aim_len; }
 
     /* ── Player Shoot ── */
-    if (IsKeyDown(KEY_J) || IsKeyDown(KEY_X)) {
+    Vector2 spawn_pos = (Vector2){ p->pos.x + p->size.x/2.0f + aim.x * 20.0f, p->pos.y + (is_crouching ? p->size.y * 0.7f : p->size.y/2.5f) + aim.y * 20.0f };
+    bool auto_shoot = IsEnemyInAimLine(g, spawn_pos, aim);
+
+    if (IsKeyDown(KEY_J) || IsKeyDown(KEY_X) || auto_shoot) {
         FirePlayerWeapon(g, aim);
     }
 
@@ -1401,7 +1335,7 @@ static void UpdateGame(GameState *g, float dt) {
         if (!b->active) continue;
 
         b->timer += dt;
-
+        
         if (b->type == WEAPON_FLAME) {
             // Corkscrew motion
             float forward_spd = 500.0f;
@@ -1409,7 +1343,7 @@ static void UpdateGame(GameState *g, float dt) {
             float amp = 150.0f;
             b->pos.x += cosf(b->angle) * forward_spd * dt - sinf(b->angle) * cosf(b->timer * freq) * amp * dt;
             b->pos.y += sinf(b->angle) * forward_spd * dt + cosf(b->angle) * cosf(b->timer * freq) * amp * dt;
-
+            
             // Spawn fire sparkles
             if (GetRandomValue(0, 2) == 0) {
                 if (g->particle_count < MAX_PARTICLES) {
@@ -1441,7 +1375,7 @@ static void UpdateGame(GameState *g, float dt) {
         if (!c->active) continue;
 
         c->pos.x += c->vel.x * dt;
-        c->pos.y = c->base_y + sinf((float)GetTime() * 4.0f) * 12.0f; // smooth bob around base height
+        c->pos.y = c->pos.y + sinf((float)GetTime() * 4.0f) * 1.5f; // wave floating
 
         // Particle trail
         if (GetRandomValue(0, 4) == 0) {
@@ -1454,14 +1388,16 @@ static void UpdateGame(GameState *g, float dt) {
             if (bul->active && CheckCollisionRecs2(bul->pos, (Vector2){6,6}, c->pos, (Vector2){40,24})) {
                 bul->active = false;
                 c->active = false;
-
+                
                 // Spawn weapon item drop directly
                 AddParticle(g, c->pos, COL_NEON_BLUE, 200.0f, 4.0f, 25);
-
+                
                 // Play Powerup Sound
                 PlaySynthSFX(440.0f, 1320.0f, 0.35f, 0.5f, false);
-
+                
                 p->weapon = c->drops_weapon;
+                p->shield += 50.0f;
+                if (p->shield > p->max_shield) p->shield = p->max_shield;
                 g->camera_shake = 0.15f;
             }
         }
@@ -1492,23 +1428,19 @@ static void UpdateGame(GameState *g, float dt) {
                 e->pos.x += e->vel.x * dt;
                 e->facing_right = e->vel.x > 0;
 
-                // Apply gravity to velocity (not directly to position) and resolve via split-axis
-                e->vel.y += GRAVITY * dt;
-                if (e->vel.y > 800.0f) e->vel.y = 800.0f;
-
+                // Handle simple tile collision to snap on ground
+                e->pos.y += GRAVITY * dt;
                 float ex, ey;
-                bool eh = false;
-                // Resolve X first
-                CheckTileCollisionX(lv, e->pos, e->size, &ex, &eh);
+                bool eh;
+                CheckTileCollision(lv, e->pos, e->size, &ex, &ey, &eh);
                 e->pos.x += ex;
-                // Then resolve Y
-                e->pos.y += e->vel.y * dt;
-                CheckTileCollisionY(lv, e->pos, e->size, &ey, &eh);
                 e->pos.y += ey;
-                if (ey != 0) e->vel.y = 0;
 
                 // Hit player
-                if (CheckCollisionRecs2(e->pos, e->size, p->pos, p->size)) {
+                bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+                Vector2 p_size = is_crouching ? (Vector2){ p->size.x, p->size.y / 2.0f } : p->size;
+                Vector2 p_pos = is_crouching ? (Vector2){ p->pos.x, p->pos.y + p->size.y / 2.0f } : p->pos;
+                if (CheckCollisionRecs2(e->pos, e->size, p_pos, p_size)) {
                     DamagePlayer(g, 15.0f);
                 }
                 break;
@@ -1562,7 +1494,8 @@ static void UpdateGame(GameState *g, float dt) {
             case ENEMY_BOSS_LEFT_TURRET: {
                 // Top turret of the giant Wall Boss
                 Vector2 dir = { p->pos.x + p->size.x/2 - e->pos.x, p->pos.y + p->size.y/2 - e->pos.y };
-                if (e->shoot_timer >= 1.8f) {
+                float len = sqrtf(dir.x*dir.x + dir.y*dir.y);
+                if (e->shoot_timer >= 2.5f) {
                     e->shoot_timer = 0;
                     PlaySynthSFX(500.0f, 200.0f, 0.22f, 0.35f, false);
                     // Spread shot of 3 bullets
@@ -1574,7 +1507,7 @@ static void UpdateGame(GameState *g, float dt) {
                             if (!g->enemy_bullets[eb].active) {
                                 EnemyBullet *ebul = &g->enemy_bullets[eb];
                                 ebul->pos = e->pos;
-                                ebul->vel = (Vector2){ cosf(ang) * 300.0f, sinf(ang) * 300.0f };
+                                ebul->vel = (Vector2){ cosf(ang) * 250.0f, sinf(ang) * 250.0f };
                                 ebul->active = true;
                                 break;
                             }
@@ -1587,19 +1520,17 @@ static void UpdateGame(GameState *g, float dt) {
                 // Bottom turret of the giant Wall Boss
                 Vector2 dir = { p->pos.x + p->size.x/2 - e->pos.x, p->pos.y + p->size.y/2 - e->pos.y };
                 float len = sqrtf(dir.x*dir.x + dir.y*dir.y);
-                if (e->shoot_timer >= 1.2f) {
+                if (e->shoot_timer >= 1.8f) {
                     e->shoot_timer = 0;
                     PlaySynthSFX(800.0f, 400.0f, 0.15f, 0.25f, false);
                     // Direct fire laser bullet
-                    if (len > 0.0001f) {
-                        for (int eb = 0; eb < MAX_ENEMY_BULS; eb++) {
-                            if (!g->enemy_bullets[eb].active) {
-                                EnemyBullet *ebul = &g->enemy_bullets[eb];
-                                ebul->pos = e->pos;
-                                ebul->vel = (Vector2){ (dir.x/len) * 450.0f, (dir.y/len) * 450.0f };
-                                ebul->active = true;
-                                break;
-                            }
+                    for (int eb = 0; eb < MAX_ENEMY_BULS; eb++) {
+                        if (!g->enemy_bullets[eb].active) {
+                            EnemyBullet *ebul = &g->enemy_bullets[eb];
+                            ebul->pos = e->pos;
+                            ebul->vel = (Vector2){ (dir.x/len) * 320.0f, (dir.y/len) * 320.0f };
+                            ebul->active = true;
+                            break;
                         }
                     }
                 }
@@ -1612,7 +1543,7 @@ static void UpdateGame(GameState *g, float dt) {
                 e->boss_core_open = (cycle > 2.0f);
 
                 if (e->boss_core_open) {
-                    if (e->shoot_timer >= 0.5f) {
+                    if (e->shoot_timer >= 0.9f) {
                         e->shoot_timer = 0;
                         PlaySynthSFX(300.0f, 100.0f, 0.25f, 0.35f, true); // fireball crackle
                         // Spits fireballs straight left
@@ -1620,7 +1551,7 @@ static void UpdateGame(GameState *g, float dt) {
                             if (!g->enemy_bullets[eb].active) {
                                 EnemyBullet *ebul = &g->enemy_bullets[eb];
                                 ebul->pos = (Vector2){ e->pos.x, e->pos.y + e->size.y/2 };
-                                ebul->vel = (Vector2){ -280.0f, (float)GetRandomValue(-100, 100) };
+                                ebul->vel = (Vector2){ -220.0f, (float)GetRandomValue(-50, 50) };
                                 ebul->active = true;
                                 break;
                             }
@@ -1629,7 +1560,6 @@ static void UpdateGame(GameState *g, float dt) {
                 }
                 break;
             }
-            default: break;
         }
 
         // Collision with player bullets
@@ -1648,7 +1578,7 @@ static void UpdateGame(GameState *g, float dt) {
 
                 e->health -= bul->damage;
                 e->hit_flash = 0.08f; // set hit flash timer
-
+                
                 // Play impact SFX
                 PlaySynthSFX(300.0f, 150.0f, 0.08f, 0.35f, true);
 
@@ -1656,7 +1586,7 @@ static void UpdateGame(GameState *g, float dt) {
 
                 if (e->health <= 0) {
                     e->active = false;
-
+                    
                     // Explosion SFX
                     PlaySynthSFX(160.0f, 35.0f, 0.42f, 0.75f, true);
 
@@ -1671,7 +1601,6 @@ static void UpdateGame(GameState *g, float dt) {
             }
         }
     }
-    (void)active_boss_parts;
 
     // Boss Core destroyed = Level Clear / Game Win!
     if (core_destroyed) {
@@ -1692,7 +1621,10 @@ static void UpdateGame(GameState *g, float dt) {
         eb->pos.y += eb->vel.y * dt;
 
         // Hit player
-        if (CheckCollisionRecs2(eb->pos, (Vector2){8,8}, p->pos, p->size)) {
+        bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+        Vector2 p_size = is_crouching ? (Vector2){ p->size.x, p->size.y / 2.0f } : p->size;
+        Vector2 p_pos = is_crouching ? (Vector2){ p->pos.x, p->pos.y + p->size.y / 2.0f } : p->pos;
+        if (CheckCollisionRecs2(eb->pos, (Vector2){8,8}, p_pos, p_size)) {
             eb->active = false;
             DamagePlayer(g, 15.0f);
         }
@@ -1778,7 +1710,7 @@ static void DrawGame(GameState *g) {
         // Controls box
         DrawRectangle(SCREEN_W/2 - 250, 360, 500, 180, (Color){ 20, 15, 30, 200 });
         DrawRectangleLines(SCREEN_W/2 - 250, 360, 500, 180, COL_CYBER_PURPLE);
-
+        
         DrawText("CONTROLS:", SCREEN_W/2 - 230, 375, 14, COL_NEON_BLUE);
         DrawText("- Move: A/D or Left/Right Keys", SCREEN_W/2 - 230, 400, 14, WHITE);
         DrawText("- Aim: W/S or Up/Down Keys (Down in mid-air only)", SCREEN_W/2 - 230, 422, 14, WHITE);
@@ -1788,7 +1720,6 @@ static void DrawGame(GameState *g) {
         DrawText("- Quit / Back: ESC Key", SCREEN_W/2 - 230, 510, 14, WHITE);
 
         if (IsKeyPressed(KEY_ENTER)) {
-            InitGame(g);
             g->screen = SCREEN_PLAY;
             LoadLevel(g, 0);
         }
@@ -1800,7 +1731,7 @@ static void DrawGame(GameState *g) {
 
         float shake = sinf(t * 15.0f) * 3.0f;
         DrawText("MISSION FAILED", SCREEN_W/2 - MeasureText("MISSION FAILED", 48)/2 + (int)shake, SCREEN_H/2 - 80, 48, COL_NEON_PINK);
-
+        
         char buf[128];
         snprintf(buf, sizeof(buf), "You reached %s", lv->name);
         DrawText(buf, SCREEN_W/2 - MeasureText(buf, 20)/2, SCREEN_H/2 - 20, 20, LIGHTGRAY);
@@ -1819,7 +1750,7 @@ static void DrawGame(GameState *g) {
 
     if (g->screen == SCREEN_WIN) {
         ClearBackground((Color){ 5, 15, 10, 255 });
-
+        
         // Spawn win screen background celebrations
         for (int i = 0; i < 2; i++) {
             AddParticle(g, (Vector2){ (float)GetRandomValue(0, SCREEN_W), (float)GetRandomValue(0, SCREEN_H/2) },
@@ -1831,7 +1762,7 @@ static void DrawGame(GameState *g) {
 
         DrawText("MISSION ACCOMPLISHED!", SCREEN_W/2 - MeasureText("MISSION ACCOMPLISHED!", 40)/2, SCREEN_H/2 - 80, 40, COL_NEON_GREEN);
         DrawText("THE REACTOR HAS BEEN DEFUSED", SCREEN_W/2 - MeasureText("THE REACTOR HAS BEEN DEFUSED", 18)/2, SCREEN_H/2 - 25, 18, WHITE);
-
+        
         DrawText("PRESS ENTER TO RETRY OR ESC FOR MENU", SCREEN_W/2 - MeasureText("PRESS ENTER TO RETRY OR ESC FOR MENU", 16)/2, SCREEN_H/2 + 50, 16, COL_NEON_BLUE);
 
         if (IsKeyPressed(KEY_ENTER)) {
@@ -1849,54 +1780,24 @@ static void DrawGame(GameState *g) {
 
     /* ── Parallax Background Drawing ── */
     float cam_x = g->camera.target.x;
+    
+    // Tiled biological background for all levels (colored/tinted per level)
+    float bg_scroll = cam_x * 0.2f;
+    int tile_w = 144;
+    int tile_h = 144;
+    int cols = (SCREEN_W / tile_w) + 2;
+    int rows = (SCREEN_H / tile_h) + 1;
+    float start_x = -fmodf(bg_scroll, tile_w);
+    
+    Color bg_tint = WHITE;
+    if (g->current_level == 0) bg_tint = (Color){ 60, 160, 100, 255 };    // Stage 1: Green forest/jungle hive
+    else if (g->current_level == 1) bg_tint = (Color){ 180, 110, 60, 255 };   // Stage 2: Orange refinery hive
+    else if (g->current_level == 2) bg_tint = WHITE;                           // Stage 3: Pink core hive (default)
 
-    // Twinkling Star Sky
-    for (int i = 0; i < 60; i++) {
-        float star_x = fmodf(i * 123.456f - cam_x * 0.05f, SCREEN_W + 100.0f) - 50.0f;
-        float star_y = fmodf(i * 987.654f, SCREEN_H * 0.5f);
-        float blink = sinf(t * 2.0f + i) * 0.5f + 0.5f;
-        Color sc = (Color){ 200, 220, 255, (unsigned char)(60 + blink * 180) };
-        DrawCircle((int)star_x, (int)star_y, i % 3 == 0 ? 1.5f : 1.0f, sc);
-    }
-
-    // Far BG Skyline layers (Skyscrapers with neon windows)
-    for (int i = 0; i < 8; i++) {
-        float offset_x = fmodf(-cam_x * 0.15f + i * 220.0f, 1980.0f) - 220.0f;
-        float height = 240.0f + sinf(i * 1.5f) * 80.0f;
-        float width = 150.0f;
-        float top_y = SCREEN_H - height;
-
-        DrawRectangle((int)offset_x, (int)top_y, (int)width, (int)height, (Color){ 22, 16, 32, 255 });
-        DrawRectangleLines((int)offset_x, (int)top_y, (int)width, (int)height, (Color){ 52, 32, 68, 255 });
-
-        // Neon windows
-        for (int wx = 15; wx < width - 15; wx += 25) {
-            for (int wy = 20; wy < height - 20; wy += 35) {
-                int win_val = (i * 9 + wx * 17 + wy * 7) % 12;
-                if (win_val < 3) {
-                    Color win_col = COL_NEON_BLUE;
-                    if (win_val == 1) win_col = COL_NEON_PINK;
-                    if (win_val == 2) win_col = COL_NEON_ORANGE;
-                    win_col.a = 70; // transparency
-                    DrawRectangle((int)(offset_x + wx), (int)(top_y + wy), 10, 14, win_col);
-                }
-            }
+    for (int x = -1; x < cols; x++) {
+        for (int y = 0; y < rows; y++) {
+            DrawTexture(texBackground, x * tile_w + start_x, y * tile_h, bg_tint);
         }
-    }
-
-    // Mid BG Industrial layers (diagonal lattice grids)
-    for (int i = 0; i < 10; i++) {
-        float offset_x = fmodf(-cam_x * 0.35f + i * 180.0f, 1800.0f) - 180.0f;
-        float height = 160.0f + cosf(i * 2.1f) * 50.0f;
-        float width = 110.0f;
-        float top_y = SCREEN_H - height;
-
-        DrawRectangle((int)offset_x, (int)top_y, (int)width, (int)height, (Color){ 28, 22, 40, 255 });
-        DrawRectangleLines((int)offset_x, (int)top_y, (int)width, (int)height, (Color){ 76, 52, 102, 255 });
-
-        // Crossbars details
-        DrawLine((int)offset_x, (int)top_y, (int)(offset_x + width), (int)(top_y + height), (Color){ 76, 52, 102, 50 });
-        DrawLine((int)(offset_x + width), (int)top_y, (int)offset_x, (int)(top_y + height), (Color){ 76, 52, 102, 50 });
     }
 
     BeginMode2D(g->camera);
@@ -1908,42 +1809,65 @@ static void DrawGame(GameState *g) {
             // Animated hazard lava/spike pits
             // Draw a solid dark red base
             DrawRectangleRec(plat.rect, (Color){ 60, 10, 20, 255 });
-
+            
             // Draw glowing spikes!
             float spike_w = 10.0f;
-            int spike_count = (int)(plat.rect.width / spike_w);
+            int spike_count = plat.rect.width / spike_w;
             float pulse = sinf(t * 10.0f) * 0.5f + 0.5f;
             Color spike_color = (Color){ 255, 40, (unsigned char)(100 + pulse * 155), 255 };
-
+            
             for (int s = 0; s < spike_count; s++) {
                 Vector2 p1 = { plat.rect.x + s * spike_w, plat.rect.y + plat.rect.height };
                 Vector2 p2 = { plat.rect.x + (s + 0.5f) * spike_w, plat.rect.y };
                 Vector2 p3 = { plat.rect.x + (s + 1.0f) * spike_w, plat.rect.y + plat.rect.height };
                 DrawTriangle(p1, p3, p2, spike_color); // pointing UP spikes
             }
-
+            
             // Neon top line
             DrawLineEx((Vector2){ plat.rect.x, plat.rect.y }, (Vector2){ plat.rect.x + plat.rect.width, plat.rect.y }, 2.0f, spike_color);
         } else {
-            // Normal solid platform
-            DrawRectangleRec(plat.rect, lv->platform_color);
-            // Draw a thick, highly visible neon top border line
-            DrawLineEx((Vector2){ plat.rect.x, plat.rect.y }, (Vector2){ plat.rect.x + plat.rect.width, plat.rect.y }, 4.0f, WHITE);
-            // Draw a glowing platform color outline
-            DrawRectangleLinesEx(plat.rect, 2.0f, lv->platform_color);
+            // Draw organic tiled platform using Living Tissue assets (tinted by platform color)
+            float x = plat.rect.x;
+            float y = plat.rect.y;
+            float w = plat.rect.width;
+            float h = plat.rect.height;
+
+            int tiles_x = (int)(w / 32.0f);
+            if (w > 0 && tiles_x < 1) tiles_x = 1;
+
+            for (int tx = 0; tx < tiles_x; tx++) {
+                float tile_x_pos = x + tx * 32.0f;
+                float draw_w = 32.0f;
+                if (tx == tiles_x - 1) {
+                    draw_w = w - tx * 32.0f; // fit remainder
+                }
+                if (draw_w <= 0) continue;
+
+                // Select tileset source rect
+                float src_x = 64.0f; // default middle
+                if (tx == 0) src_x = 32.0f; // left corner top
+                else if (tx == tiles_x - 1) src_x = 192.0f; // right corner top
+                else {
+                    src_x = 64.0f + (tx % 4) * 32.0f; // cycle repeating middle frames
+                }
+
+                Rectangle src_rect = { src_x, 96.0f, draw_w, 32.0f };
+                Rectangle dest_rect = { tile_x_pos, y, draw_w, h }; // stretched vertically to fit platform height
+                DrawTexturePro(texTileset, src_rect, dest_rect, (Vector2){0,0}, 0.0f, plat.color);
+            }
         }
     }
 
     /* ── Draw Exit Sign ── */
     if (!g->boss_active) {
         float exit_x = lv->length - 80.0f;
-        DrawRectangle((int)exit_x, 440, 12, 80, LIGHTGRAY);
-        DrawRectangle((int)exit_x + 60, 440, 12, 80, LIGHTGRAY);
-        DrawRectangle((int)exit_x - 10, 410, 92, 30, (Color){ 20, 80, 30, 255 });
-        DrawRectangleLines((int)exit_x - 10, 410, 92, 30, COL_NEON_GREEN);
-
+        DrawRectangle(exit_x, 440, 12, 80, LIGHTGRAY);
+        DrawRectangle(exit_x + 60, 440, 12, 80, LIGHTGRAY);
+        DrawRectangle(exit_x - 10, 410, 92, 30, (Color){ 20, 80, 30, 255 });
+        DrawRectangleLines(exit_x - 10, 410, 92, 30, COL_NEON_GREEN);
+        
         float blink = sinf(t * 8.0f);
-        DrawText("EXIT ->", (int)exit_x, 420, 12, blink > 0 ? COL_NEON_GREEN : DARKGREEN);
+        DrawText("EXIT ->", exit_x, 420, 12, blink > 0 ? COL_NEON_GREEN : DARKGREEN);
     }
 
     /* ── Draw Item Capsules ── */
@@ -1951,16 +1875,16 @@ static void DrawGame(GameState *g) {
         Capsule *c = &g->capsules[i];
         if (!c->active) continue;
 
-        DrawRectangle((int)c->pos.x, (int)c->pos.y, 40, 24, (Color){ 30, 50, 100, 200 });
+        DrawRectangle(c->pos.x, c->pos.y, 40, 24, (Color){ 30, 50, 100, 200 });
         DrawRectangleLinesEx((Rectangle){ c->pos.x, c->pos.y, 40, 24 }, 2.0f, COL_NEON_BLUE);
-
+        
         char label[2] = "S";
         if (c->drops_weapon == WEAPON_LASER) strcpy(label, "L");
         if (c->drops_weapon == WEAPON_FLAME) strcpy(label, "F");
 
         float pulse = sinf(t * 10.0f) * 3.0f;
-        DrawCircle((int)(c->pos.x + 20), (int)(c->pos.y + 12), 10 + pulse/2.0f, (Color){ 0, 100, 255, 60 });
-        DrawText(label, (int)(c->pos.x + 16), (int)(c->pos.y + 6), 12, COL_NEON_BLUE);
+        DrawCircle(c->pos.x + 20, c->pos.y + 12, 10 + pulse/2.0f, (Color){ 0, 100, 255, 60 });
+        DrawText(label, c->pos.x + 16, c->pos.y + 6, 12, COL_NEON_BLUE);
     }
 
     /* ── Draw Enemies ── */
@@ -1972,37 +1896,42 @@ static void DrawGame(GameState *g) {
 
         switch (e->type) {
             case ENEMY_RUNNER: {
-                // Running soldier (using texRunner with horizontal flip and hit-flash colors)
-                float src_w = e->facing_right ? 64.0f : -64.0f;
-                Color tint = flash ? COL_NEON_ORANGE : WHITE;
+                // Runner Cyber-soldier from the sprite sheet
+                float dw = 56.0f;
+                float dh = 56.0f;
+                float dx = e->pos.x + e->size.x / 2.0f;
+                float dy = e->pos.y + e->size.y - dh / 2.0f; // ground-anchored
 
-                // Simple run cycle oscillation for legs
-                float leg_swing = sinf(t * 16.0f) * 8.0f;
+                int frame = (int)(t * 12.0f + e->pos.x * 0.03f) % 6;
+                float src_x = frame * 48.0f;
+                float src_y = 48.0f; // Running forward Y row
+                float src_w = e->facing_right ? 48.0f : -48.0f;
+                Rectangle source_rect = { src_x, src_y, src_w, 48.0f };
 
-                DrawTexturePro(texRunner, (Rectangle){ 0, 0, src_w, 64 }, (Rectangle){ e->pos.x + e->size.x/2.0f, e->pos.y + e->size.y/2.0f, e->size.x, e->size.y }, (Vector2){ e->size.x/2.0f, e->size.y/2.0f }, 0.0f, tint);
-
-                // Draw animated legs underneath
-                if (flash) {
-                    DrawLineEx((Vector2){ e->pos.x + 8, e->pos.y + e->size.y - 10 }, (Vector2){ e->pos.x + 8 + leg_swing, e->pos.y + e->size.y }, 4.0f, COL_NEON_ORANGE);
-                    DrawLineEx((Vector2){ e->pos.x + 24, e->pos.y + e->size.y - 10 }, (Vector2){ e->pos.x + 24 - leg_swing, e->pos.y + e->size.y }, 4.0f, COL_NEON_ORANGE);
-                } else {
-                    DrawLineEx((Vector2){ e->pos.x + 8, e->pos.y + e->size.y - 10 }, (Vector2){ e->pos.x + 8 + leg_swing, e->pos.y + e->size.y }, 4.0f, (Color){ 160, 40, 40, 255 });
-                    DrawLineEx((Vector2){ e->pos.x + 24, e->pos.y + e->size.y - 10 }, (Vector2){ e->pos.x + 24 - leg_swing, e->pos.y + e->size.y }, 4.0f, (Color){ 160, 40, 40, 255 });
-                }
+                Color tint = flash ? WHITE : (Color){ 255, 100, 100, 255 }; // Crimson Cyber tint
+                DrawTexturePro(texPlayerSheet, source_rect, (Rectangle){ dx, dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, 0.0f, tint);
                 break;
             }
             case ENEMY_SNIPER: {
-                // Standing sniper with laser pointer (using texSniper and hit-flash colors)
-                float src_w = e->facing_right ? 64.0f : -64.0f;
-                Color tint = flash ? COL_NEON_ORANGE : WHITE;
+                // Crouching Sniper from the sprite sheet
+                float dw = 56.0f;
+                float dh = 56.0f;
+                float dx = e->pos.x + e->size.x / 2.0f;
+                float dy = e->pos.y + e->size.y - dh / 2.0f; // ground-anchored
 
-                DrawTexturePro(texSniper, (Rectangle){ 0, 0, src_w, 64 }, (Rectangle){ e->pos.x + e->size.x/2.0f, e->pos.y + e->size.y/2.0f, e->size.x, e->size.y }, (Vector2){ e->size.x/2.0f, e->size.y/2.0f }, 0.0f, tint);
+                float src_x = 0.0f; // Crouching aiming forward Column 0
+                float src_y = 96.0f; // Y row for crouching
+                float src_w = e->facing_right ? 48.0f : -48.0f;
+                Rectangle source_rect = { src_x, src_y, src_w, 48.0f };
+
+                Color tint = flash ? WHITE : (Color){ 240, 100, 255, 255 }; // Violet Cyber tint
+                DrawTexturePro(texPlayerSheet, source_rect, (Rectangle){ dx, dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, 0.0f, tint);
 
                 // Laser aim guide line (telegraphed warning!)
                 Vector2 target_pos = (Vector2){ p->pos.x + p->size.x/2, p->pos.y + p->size.y/2 };
                 Vector2 origin_pos = (Vector2){ e->pos.x + (e->facing_right ? 25 : 7), e->pos.y + 12 };
-
-                float ratio = e->shoot_timer / 2.0f;
+                
+                float ratio = e->shoot_timer / 1.8f;
                 Color laser_color;
                 float line_thick = 1.0f;
                 if (ratio < 0.6f) {
@@ -2019,9 +1948,9 @@ static void DrawGame(GameState *g) {
             case ENEMY_TURRET: {
                 // Rotating wall turret aims directly at player (using texTurret)
                 Color tint = flash ? COL_NEON_ORANGE : WHITE;
-
+                
                 DrawTexturePro(texTurret, (Rectangle){ 0, 0, 64, 64 }, (Rectangle){ e->pos.x + e->size.x/2.0f, e->pos.y + e->size.y/2.0f, e->size.x, e->size.y }, (Vector2){ e->size.x/2.0f, e->size.y/2.0f }, 0.0f, tint);
-
+                
                 // Draw rotating gun barrel towards player
                 Vector2 dir = { p->pos.x + p->size.x/2 - e->pos.x - 16, p->pos.y + p->size.y/2 - e->pos.y - 16 };
                 float len = sqrtf(dir.x*dir.x + dir.y*dir.y);
@@ -2035,9 +1964,9 @@ static void DrawGame(GameState *g) {
             case ENEMY_BOSS_RIGHT_TURRET: {
                 Color body_col = flash ? WHITE : (Color){ 100, 100, 120, 255 };
 
-                DrawRectangle((int)e->pos.x, (int)e->pos.y, (int)e->size.x, (int)e->size.y, body_col);
+                DrawRectangle(e->pos.x, e->pos.y, e->size.x, e->size.y, body_col);
                 DrawRectangleLinesEx((Rectangle){ e->pos.x, e->pos.y, e->size.x, e->size.y }, 2.0f, flash ? WHITE : COL_NEON_ORANGE);
-
+                
                 Vector2 dir = { p->pos.x + p->size.x/2 - e->pos.x, p->pos.y + p->size.y/2 - e->pos.y };
                 float len = sqrtf(dir.x*dir.x + dir.y*dir.y);
                 if (len > 0) {
@@ -2055,7 +1984,7 @@ static void DrawGame(GameState *g) {
 
                 DrawRectangle((int)e->pos.x, (int)e->pos.y, (int)e->size.x, (int)e->size.y, body_col);
                 DrawRectangleLinesEx((Rectangle){ e->pos.x, e->pos.y, e->size.x, e->size.y }, 3.0f, flash ? WHITE : COL_NEON_PINK);
-
+                
                 if (e->boss_core_open) {
                     float pulse = sinf(t * 15.0f) * 6.0f;
                     DrawCircle((int)e->pos.x + 32, (int)e->pos.y + 40, (int)(20 + pulse/2), RED);
@@ -2081,28 +2010,7 @@ static void DrawGame(GameState *g) {
         }
 
         if (draw_p) {
-            // Draw dash ghosts if player is dashing
-            if (p->dash_timer > 0) {
-                for (int k = 0; k < p->dash_ghost_count; k++) {
-                    float alpha = (1.0f - (float)(k + 1) / 4.0f) * 0.4f;
-                    Color ghost_col = COL_NEON_BLUE;
-                    ghost_col.a = (unsigned char)(255 * alpha);
-                    DrawRectangle((int)p->dash_ghosts[k].x, (int)p->dash_ghosts[k].y, (int)p->size.x, (int)p->size.y, ghost_col);
-                }
-            }
-
-            // Calculate squashed & stretched size and position
-            float dw = p->size.x * p->squash_x;
-            float dh = p->size.y * p->squash_y;
-            float dx = p->pos.x + p->size.x / 2.0f;
-            float dy = p->pos.y + p->size.y - dh / 2.0f; // ground-anchored
-
-            // Draw player texture (with proper squash & stretch & somersault rotation!)
-            // Flip horizontally based on facing direction
-            float src_w = p->facing_right ? 64.0f : -64.0f;
-            DrawTexturePro(texPlayer, (Rectangle){ 0, 0, src_w, 64 }, (Rectangle){ dx, dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, p->jump_rotation, WHITE);
-
-            // Draw Pointer weapon barrel based on keyboard aim vector
+            // Calculate player aim vector first, so we can use it for sprite frame selection!
             Vector2 aim = { 1.0f, 0.0f };
             if (p->facing_right) aim.x = 1.0f;
             else aim.x = -1.0f;
@@ -2113,22 +2021,108 @@ static void DrawGame(GameState *g) {
             if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) ady -= 1.0f;
             if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) ady += 1.0f;
 
-            if (ady < 0) {
-                aim.y = -1.0f;
-                if (adx == 0) aim.x = 0;
-            } else if (ady > 0 && !p->on_ground) {
-                aim.y = 1.0f;
-                if (adx == 0) aim.x = 0;
+            bool is_crouching = p->on_ground && (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S));
+
+            if (is_crouching) {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+                    aim.y = -1.0f;
+                    if (adx != 0) aim.x = adx;
+                    else aim.x = 0;
+                } else {
+                    aim.y = 0;
+                    if (adx != 0) aim.x = adx;
+                }
             } else {
-                aim.y = 0;
-                if (adx != 0) aim.x = adx;
+                if (ady < 0) {
+                    aim.y = -1.0f;
+                    if (adx == 0) aim.x = 0;
+                } else if (ady > 0 && !p->on_ground) {
+                    aim.y = 1.0f;
+                    if (adx == 0) aim.x = 0;
+                } else {
+                    aim.y = 0;
+                    if (adx != 0) aim.x = adx;
+                }
             }
             float aim_len = sqrtf(aim.x*aim.x + aim.y*aim.y);
             if (aim_len > 0) { aim.x /= aim_len; aim.y /= aim_len; }
 
-            Vector2 gun_start = (Vector2){ dx, dy - dh/6.0f };
-            Vector2 gun_end = (Vector2){ gun_start.x + aim.x * 24.0f, gun_start.y + aim.y * 24.0f };
-            DrawLineEx(gun_start, gun_end, 4.0f, COL_NEON_PINK);
+            // Calculate squashed & stretched size and position (drawn at 64x64 to make the sprite larger and prevent squashing)
+            float dw = 64.0f * p->squash_x;
+            float dh = 64.0f * p->squash_y;
+            float dx = p->pos.x + p->size.x / 2.0f;
+            float dy = p->pos.y + p->size.y - dh / 2.0f; // ground-anchored
+
+            // Sprite Sheet animation frame selection logic
+            float src_x = 0;
+            float src_y = 0;
+            
+            if (!p->on_ground) {
+                // Somersault roll spin in mid-air
+                int frame = (int)(t * 15.0f) % 3;
+                src_x = frame * 48.0f;
+                src_y = 144.0f;
+            } else if (is_crouching) {
+                // Crouching aiming
+                if (aim.x == 0 && aim.y == -1.0f) {
+                    src_x = 2 * 48.0f; // Crouching aiming straight UP
+                    src_y = 96.0f;
+                } else if (aim.x != 0 && aim.y == -1.0f) {
+                    src_x = 1 * 48.0f; // Crouching aiming diagonally UP
+                    src_y = 96.0f;
+                } else {
+                    src_x = 0 * 48.0f; // Crouching aiming forward
+                    src_y = 96.0f;
+                }
+            } else {
+                // On Ground
+                if (p->vel.x == 0) {
+                    // Idle aiming
+                    if (aim.x == 0 && aim.y == -1.0f) {
+                        src_x = 2 * 48.0f; // Aiming straight UP
+                        src_y = 0.0f;
+                    } else if (aim.x != 0 && aim.y == -1.0f) {
+                        src_x = 1 * 48.0f; // Aiming diagonally UP
+                        src_y = 0.0f;
+                    } else {
+                        // Standing forward idle loop (breathe effect: frames 0, 3, 4)
+                        int idle_frames[3] = { 0, 3, 4 };
+                        int frame = (int)(t * 3.0f) % 3;
+                        src_x = idle_frames[frame] * 48.0f;
+                        src_y = 0.0f;
+                    }
+                } else {
+                    // Running
+                    if (aim.y == -1.0f) {
+                        // Running diagonally UP: Y=96.0f, Columns 3, 4, 5
+                        int diag_frames[3] = { 3, 4, 5 };
+                        int frame = (int)(t * 12.0f) % 3;
+                        src_x = diag_frames[frame] * 48.0f;
+                        src_y = 96.0f;
+                    } else {
+                        int frame = (int)(t * 12.0f) % 6;
+                        src_x = frame * 48.0f;
+                        src_y = 48.0f; // Running forward
+                    }
+                }
+            }
+            
+            float src_w = p->facing_right ? 48.0f : -48.0f;
+            Rectangle source_rect = { src_x, src_y, src_w, 48.0f };
+
+            // Draw dash ghosts using player sprite poses
+            if (p->dash_timer > 0) {
+                for (int k = 0; k < p->dash_ghost_count; k++) {
+                    float alpha = (1.0f - (float)(k + 1) / 4.0f) * 0.4f;
+                    Color ghost_col = (Color){ 0, 180, 255, (unsigned char)(255 * alpha) };
+                    float g_dx = p->dash_ghosts[k].x + p->size.x/2.0f;
+                    float g_dy = p->dash_ghosts[k].y + p->size.y - dh/2.0f;
+                    DrawTexturePro(texPlayerSheet, source_rect, (Rectangle){ g_dx, g_dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, p->jump_rotation, ghost_col);
+                }
+            }
+
+            // Draw player texture from the sprite sheet
+            DrawTexturePro(texPlayerSheet, source_rect, (Rectangle){ dx, dy, dw, dh }, (Vector2){ dw/2.0f, dh/2.0f }, p->jump_rotation, WHITE);
         }
     }
 
@@ -2195,7 +2189,6 @@ static void DrawGame(GameState *g) {
         case WEAPON_SPREAD: strcpy(weap_txt, "WEAPON: SPREAD (S)"); break;
         case WEAPON_LASER: strcpy(weap_txt, "WEAPON: LIGHT-LASER (L)"); break;
         case WEAPON_FLAME: strcpy(weap_txt, "WEAPON: FLAME-SPIRAL (F)"); break;
-        default: strcpy(weap_txt, "WEAPON: UNKNOWN"); break;
     }
     DrawText(weap_txt, 20, 80, 14, COL_NEON_BLUE);
 
@@ -2211,7 +2204,7 @@ static void DrawGame(GameState *g) {
     for (int y = 0; y < SCREEN_H; y += 3) {
         DrawLine(0, y, SCREEN_W, y, (Color){ 0, 0, 0, 30 });
     }
-
+    
     // Vignette shadow
     DrawRectangleGradientV(0, 0, SCREEN_W, 40, (Color){ 0, 0, 0, 180 }, (Color){ 0, 0, 0, 0 });
     DrawRectangleGradientV(0, SCREEN_H - 40, SCREEN_W, 40, (Color){ 0, 0, 0, 0 }, (Color){ 0, 0, 0, 180 });
@@ -2235,6 +2228,9 @@ int main(void) {
     texRunner = GenerateRunnerTexture();
     texSniper = GenerateSniperTexture();
     texTurret = GenerateTurretTexture();
+    texPlayerSheet = LoadTexture("contra clone character sprite sheet.png");
+    texTileset = LoadTexture("Living-Tissue-Platform-Files/PNG/layers/tileset.png");
+    texBackground = LoadTexture("Living-Tissue-Platform-Files/PNG/layers/bakground.png");
 
     GameState g = {0};
     InitGame(&g);
@@ -2263,6 +2259,9 @@ int main(void) {
     UnloadTexture(texRunner);
     UnloadTexture(texSniper);
     UnloadTexture(texTurret);
+    UnloadTexture(texPlayerSheet);
+    UnloadTexture(texTileset);
+    UnloadTexture(texBackground);
 
     // Close Audio device
     UnloadAudioStream(stream);

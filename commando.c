@@ -421,6 +421,8 @@ static void SpawnDust(GameState *g, Vector2 pos, int count);
 static bool CheckTileCollision(Level *lv, Vector2 pos, Vector2 size, float *push_x, float *push_y, bool *hazard_hit);
 static bool CheckTileCollisionX(Level *lv, Vector2 pos, Vector2 size, float *push_x, bool *hazard_hit);
 static bool CheckTileCollisionY(Level *lv, Vector2 pos, Vector2 size, float *push_y, bool *hazard_hit);
+static bool CheckRayCollisionRec2D(Vector2 start, Vector2 dir, Rectangle rect, float *t_collision);
+static bool IsEnemyInAimLine(GameState *g, Vector2 spawn_pos, Vector2 aim);
 
 /* ─────────────────────────── Level Builder ─────────────────────────── */
 
@@ -759,6 +761,72 @@ static void SpawnCapsule(GameState *g, float x, float y, WeaponType drops) {
 }
 
 /* ─────────────────────────── Collision Detection ─────────────────────────── */
+
+static bool CheckRayCollisionRec2D(Vector2 start, Vector2 dir, Rectangle rect, float *t_collision) {
+    float tmin = -999999.0f;
+    float tmax = 999999.0f;
+
+    if (dir.x != 0.0f) {
+        float tx1 = (rect.x - start.x) / dir.x;
+        float tx2 = (rect.x + rect.width - start.x) / dir.x;
+        tmin = fmaxf(tmin, fminf(tx1, tx2));
+        tmax = fminf(tmax, fmaxf(tx1, tx2));
+    } else {
+        if (start.x < rect.x || start.x > rect.x + rect.width) return false;
+    }
+
+    if (dir.y != 0.0f) {
+        float ty1 = (rect.y - start.y) / dir.y;
+        float ty2 = (rect.y + rect.height - start.y) / dir.y;
+        tmin = fmaxf(tmin, fminf(ty1, ty2));
+        tmax = fminf(tmax, fmaxf(ty1, ty2));
+    } else {
+        if (start.y < rect.y || start.y > rect.y + rect.height) return false;
+    }
+
+    if (tmax >= tmin && tmax >= 0.0f) {
+        *t_collision = tmin >= 0.0f ? tmin : tmax;
+        return true;
+    }
+    return false;
+}
+
+static bool IsEnemyInAimLine(GameState *g, Vector2 spawn_pos, Vector2 aim) {
+    Level *lv = &g->levels[g->current_level];
+    float closest_enemy_t = 999999.0f;
+    bool hit_enemy = false;
+
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g->enemies[i];
+        if (!e->active) continue;
+
+        Rectangle rect = { e->pos.x, e->pos.y, e->size.x, e->size.y };
+        float t_collision;
+        if (CheckRayCollisionRec2D(spawn_pos, aim, rect, &t_collision)) {
+            if (t_collision >= 0.0f && t_collision < closest_enemy_t && t_collision < 900.0f) {
+                closest_enemy_t = t_collision;
+                hit_enemy = true;
+            }
+        }
+    }
+
+    if (!hit_enemy) return false;
+
+    // Check if any wall blocks the path to the closest enemy
+    for (int i = 0; i < lv->platform_count; i++) {
+        Platform p = lv->platforms[i];
+        if (p.is_hazard) continue;
+
+        float t_wall;
+        if (CheckRayCollisionRec2D(spawn_pos, aim, p.rect, &t_wall)) {
+            if (t_wall >= 0.0f && t_wall < closest_enemy_t) {
+                return false; // wall blocks!
+            }
+        }
+    }
+
+    return true;
+}
 
 static bool CheckCollisionRecs2(Vector2 pos1, Vector2 size1, Vector2 pos2, Vector2 size2) {
     return (pos1.x < pos2.x + size2.x && pos1.x + size1.x > pos2.x &&
@@ -1232,7 +1300,10 @@ static void UpdateGame(GameState *g, float dt) {
     if (aim_len > 0) { aim.x /= aim_len; aim.y /= aim_len; }
 
     /* ── Player Shoot ── */
-    if (IsKeyDown(KEY_J) || IsKeyDown(KEY_X)) {
+    Vector2 spawn_pos = (Vector2){ p->pos.x + p->size.x/2.0f + aim.x * 20.0f, p->pos.y + p->size.y/2.5f + aim.y * 20.0f };
+    bool auto_shoot = IsEnemyInAimLine(g, spawn_pos, aim);
+
+    if (IsKeyDown(KEY_J) || IsKeyDown(KEY_X) || auto_shoot) {
         FirePlayerWeapon(g, aim);
     }
 

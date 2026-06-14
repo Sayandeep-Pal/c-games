@@ -1,0 +1,15 @@
+# Compiled binaries
+a.out
+assassin
+commando
+contra
+devils_gauntlet
+
+# OS generated files
+.DS_Store
+
+# Temporary files
+*.o
+*.log
+/PSD
+*.pdf

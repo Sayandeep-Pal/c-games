@@ -180,6 +180,7 @@ typedef struct {
     float       camera_shake;
     bool        boss_active;
     float       boss_intro_timer;
+    int         kill_count;
 } GameState;
 
 /* ─────────────────────────── Global Palette ─────────────────────────── */
@@ -450,120 +451,240 @@ static void LoadLevel(GameState *g, int level_idx) {
     g->boss_active = false;
 
     switch (level_idx) {
-        case 0: // Cyber Jungle
+        case 0: {
+            // STAGE 1: CYBER OUTPOST
+            // Dense jungle outpost with vertical platforming, gaps, hazards, and high enemy count
             strcpy(lv->name, "STAGE 1: CYBER OUTPOST");
-            lv->length = 3200.0f;
-            lv->spawn_point = (Vector2){ 100, 450 };
-            lv->boss_trigger_point = (Vector2){ 0, 0 }; // No boss on level 1
+            lv->length = 4000.0f;
+            lv->spawn_point = (Vector2){ 80, 450 };
+            lv->boss_trigger_point = (Vector2){ 0, 0 };
             lv->bg_color = (Color){ 12, 18, 15, 255 };
             lv->platform_color = COL_NEON_GREEN;
 
-            // Ground floors
-            AddPlatform(lv, 0, 520, 800, 80, COL_NEON_GREEN, false);
-            AddPlatform(lv, 900, 520, 1000, 80, COL_NEON_GREEN, false);
-            AddPlatform(lv, 2050, 520, 1200, 80, COL_NEON_GREEN, false);
-            // Hazard pits
-            AddPlatform(lv, 800, 560, 100, 40, COL_NEON_PINK, true);
-            AddPlatform(lv, 1900, 560, 150, 40, COL_NEON_PINK, true);
+            // Section 1: Starting grounds with low platforms
+            AddPlatform(lv, 0, 520, 500, 80, COL_NEON_GREEN, false);
+            AddPlatform(lv, 200, 400, 160, 20, COL_NEON_BLUE, false);  // starter high platform
+            AddPlatform(lv, 420, 320, 120, 20, COL_NEON_BLUE, false);
 
-            // Elevated platforms
-            AddPlatform(lv, 300, 400, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 600, 320, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1050, 400, 300, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1400, 300, 250, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1750, 400, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 2200, 330, 300, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 2600, 420, 250, 20, COL_NEON_BLUE, false);
+            // Hazard pit 1
+            AddPlatform(lv, 500, 560, 120, 40, COL_NEON_PINK, true);
 
-            // Spawning capsules
+            // Section 2: Ascending terrain
+            AddPlatform(lv, 620, 500, 400, 100, COL_NEON_GREEN, false);
+            AddPlatform(lv, 700, 360, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 950, 280, 150, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 2
+            AddPlatform(lv, 1020, 560, 100, 40, COL_NEON_PINK, true);
+
+            // Section 3: Mid-level gauntlet with multiple height platforms
+            AddPlatform(lv, 1120, 520, 700, 80, COL_NEON_GREEN, false);
+            AddPlatform(lv, 1200, 380, 200, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1450, 280, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1600, 400, 150, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 3
+            AddPlatform(lv, 1820, 560, 130, 40, COL_NEON_PINK, true);
+
+            // Section 4: Tight corridor with turret zone
+            AddPlatform(lv, 1950, 520, 600, 80, COL_NEON_GREEN, false);
+            AddPlatform(lv, 2050, 360, 150, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 2300, 260, 180, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 4
+            AddPlatform(lv, 2550, 560, 120, 40, COL_NEON_PINK, true);
+
+            // Section 5: Final approach
+            AddPlatform(lv, 2670, 520, 500, 80, COL_NEON_GREEN, false);
+            AddPlatform(lv, 2800, 400, 160, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 3050, 300, 200, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 5
+            AddPlatform(lv, 3170, 560, 100, 40, COL_NEON_PINK, true);
+
+            // Final stretch to exit
+            AddPlatform(lv, 3270, 520, 730, 80, COL_NEON_GREEN, false);
+            AddPlatform(lv, 3400, 380, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 3650, 280, 160, 20, COL_NEON_BLUE, false);
+
+            // Capsules
             SpawnCapsule(g, 700, 150, WEAPON_SPREAD);
-            SpawnCapsule(g, 1800, 150, WEAPON_LASER);
+            SpawnCapsule(g, 1500, 100, WEAPON_LASER);
+            SpawnCapsule(g, 2800, 200, WEAPON_FLAME);
 
-            // Spawning enemies
-            SpawnEnemy(g, ENEMY_SNIPER, 400, 368);
-            SpawnEnemy(g, ENEMY_RUNNER, 1200, 480);
-            SpawnEnemy(g, ENEMY_TURRET, 1450, 300);
-            SpawnEnemy(g, ENEMY_SNIPER, 1550, 268);
-            SpawnEnemy(g, ENEMY_RUNNER, 2300, 290);
-            SpawnEnemy(g, ENEMY_TURRET, 2400, 330);
-            SpawnEnemy(g, ENEMY_RUNNER, 2700, 480);
-            SpawnEnemy(g, ENEMY_SNIPER, 2800, 488);
+            // Enemies - first wave
+            SpawnEnemy(g, ENEMY_SNIPER, 450, 272);   // on platform y=320 (x:420-540)
+            SpawnEnemy(g, ENEMY_RUNNER, 300, 350);
+
+            // Enemies - second wave
+            SpawnEnemy(g, ENEMY_TURRET, 780, 328);   // on platform y=360 (x:700-880)
+            SpawnEnemy(g, ENEMY_SNIPER, 1000, 232);  // on platform y=280 (x:950-1100)
+            SpawnEnemy(g, ENEMY_RUNNER, 1300, 330);
+
+            // Enemies - third wave (gauntlet)
+            SpawnEnemy(g, ENEMY_SNIPER, 1550, 232);  // on platform y=280 (x:1450-1630)
+            SpawnEnemy(g, ENEMY_TURRET, 1700, 368);  // on platform y=400 (x:1600-1750)
+            SpawnEnemy(g, ENEMY_RUNNER, 1800, 470);
+
+            // Enemies - fourth wave
+            SpawnEnemy(g, ENEMY_TURRET, 2100, 328);  // on platform y=360 (x:2050-2200)
+            SpawnEnemy(g, ENEMY_SNIPER, 2350, 212);  // on platform y=260 (x:2300-2480)
+            SpawnEnemy(g, ENEMY_RUNNER, 2400, 470);
+            SpawnEnemy(g, ENEMY_RUNNER, 2500, 470);
+
+            // Enemies - final approach
+            SpawnEnemy(g, ENEMY_TURRET, 2900, 368);  // on platform y=400 (x:2800-2960)
+            SpawnEnemy(g, ENEMY_SNIPER, 3100, 252);  // on platform y=300 (x:3050-3250)
+            SpawnEnemy(g, ENEMY_RUNNER, 3500, 470);
+            SpawnEnemy(g, ENEMY_SNIPER, 3700, 232);  // on platform y=280 (x:3650-3810)
             break;
+        }
 
-        case 1: // Reactor Refinery
+        case 1: {
+            // STAGE 2: REACTOR REFINERY
+            // Vertical industrial platforming with moving hazards and heavy resistance
             strcpy(lv->name, "STAGE 2: REACTOR REFINERY");
-            lv->length = 3600.0f;
-            lv->spawn_point = (Vector2){ 100, 400 };
+            lv->length = 4200.0f;
+            lv->spawn_point = (Vector2){ 80, 450 };
             lv->boss_trigger_point = (Vector2){ 0, 0 };
             lv->bg_color = (Color){ 20, 15, 10, 255 };
             lv->platform_color = COL_NEON_ORANGE;
 
-            // Step layout refinery
-            AddPlatform(lv, 0, 480, 600, 120, COL_NEON_ORANGE, false);
-            AddPlatform(lv, 750, 520, 800, 80, COL_NEON_ORANGE, false);
-            AddPlatform(lv, 1700, 460, 600, 140, COL_NEON_ORANGE, false);
-            AddPlatform(lv, 2450, 520, 1200, 80, COL_NEON_ORANGE, false);
+            // Section 1: Stepped platforms ascending
+            AddPlatform(lv, 0, 520, 350, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 100, 400, 160, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 250, 300, 120, 20, COL_NEON_BLUE, false);
 
-            // Hazard refinery pits
-            AddPlatform(lv, 600, 570, 150, 30, COL_NEON_PINK, true);
-            AddPlatform(lv, 1550, 570, 150, 30, COL_NEON_PINK, true);
-            AddPlatform(lv, 2300, 570, 150, 30, COL_NEON_PINK, true);
+            // Hazard pit 1
+            AddPlatform(lv, 350, 570, 100, 30, COL_NEON_PINK, true);
 
-            // High refinery catwalks
-            AddPlatform(lv, 250, 350, 180, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 500, 260, 220, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 850, 380, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1150, 280, 250, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1800, 320, 220, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 2100, 220, 250, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 2600, 380, 300, 20, COL_NEON_BLUE, false);
+            // Section 2: Mid platforms and catwalks
+            AddPlatform(lv, 450, 500, 500, 100, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 550, 350, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 700, 220, 160, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 2
+            AddPlatform(lv, 950, 570, 120, 30, COL_NEON_PINK, true);
+
+            // Section 3: Vertical shaft gauntlet
+            AddPlatform(lv, 1070, 520, 400, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 1150, 380, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1300, 260, 150, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 3
+            AddPlatform(lv, 1470, 570, 130, 30, COL_NEON_PINK, true);
+
+            // Section 4: Reactor core area - wide open with catwalks
+            AddPlatform(lv, 1600, 520, 700, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 1700, 380, 200, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1900, 250, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 2100, 380, 150, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 4
+            AddPlatform(lv, 2300, 570, 100, 30, COL_NEON_PINK, true);
+
+            // Section 5: Descending to lower levels
+            AddPlatform(lv, 2400, 520, 500, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 2500, 380, 160, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 2700, 260, 140, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 5
+            AddPlatform(lv, 2900, 570, 120, 30, COL_NEON_PINK, true);
+
+            // Section 6: Final push
+            AddPlatform(lv, 3020, 520, 500, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 3150, 380, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 3400, 260, 200, 20, COL_NEON_BLUE, false);
+
+            // Hazard pit 6
+            AddPlatform(lv, 3520, 570, 100, 30, COL_NEON_PINK, true);
+
+            // Exit stretch
+            AddPlatform(lv, 3620, 520, 580, 80, COL_NEON_ORANGE, false);
+            AddPlatform(lv, 3800, 360, 160, 20, COL_NEON_BLUE, false);
 
             // Capsules
-            SpawnCapsule(g, 600, 100, WEAPON_FLAME);
-            SpawnCapsule(g, 2000, 100, WEAPON_SPREAD);
-            SpawnCapsule(g, 2900, 150, WEAPON_LASER);
+            SpawnCapsule(g, 700, 100, WEAPON_FLAME);
+            SpawnCapsule(g, 1800, 100, WEAPON_SPREAD);
+            SpawnCapsule(g, 2700, 100, WEAPON_LASER);
 
-            // Enemies
-            SpawnEnemy(g, ENEMY_TURRET, 350, 350);
-            SpawnEnemy(g, ENEMY_SNIPER, 600, 228);
-            SpawnEnemy(g, ENEMY_RUNNER, 900, 480);
-            SpawnEnemy(g, ENEMY_SNIPER, 1250, 248);
-            SpawnEnemy(g, ENEMY_TURRET, 1850, 320);
-            SpawnEnemy(g, ENEMY_RUNNER, 1900, 420);
-            SpawnEnemy(g, ENEMY_SNIPER, 2200, 188);
-            SpawnEnemy(g, ENEMY_TURRET, 2700, 380);
-            SpawnEnemy(g, ENEMY_RUNNER, 3000, 480);
+            // Enemies - heavy resistance
+            SpawnEnemy(g, ENEMY_SNIPER, 300, 252);   // on platform y=300 (x:250-370)
+            SpawnEnemy(g, ENEMY_TURRET, 550, 318);   // on platform y=350 (x:550-730)
+            SpawnEnemy(g, ENEMY_RUNNER, 600, 450);
+            SpawnEnemy(g, ENEMY_RUNNER, 800, 450);
+
+            SpawnEnemy(g, ENEMY_TURRET, 1200, 348);  // on platform y=380 (x:1150-1330)
+            SpawnEnemy(g, ENEMY_SNIPER, 1350, 212);  // on platform y=260 (x:1300-1450)
+            SpawnEnemy(g, ENEMY_RUNNER, 1400, 450);
+
+            SpawnEnemy(g, ENEMY_TURRET, 1750, 348);  // on platform y=380 (x:1700-1900)
+            SpawnEnemy(g, ENEMY_RUNNER, 1850, 470);
+            SpawnEnemy(g, ENEMY_SNIPER, 1950, 202);  // on platform y=250 (x:1900-2080)
+            SpawnEnemy(g, ENEMY_RUNNER, 2100, 470);
+
+            SpawnEnemy(g, ENEMY_SNIPER, 2550, 332);  // on platform y=380 (x:2500-2660)
+            SpawnEnemy(g, ENEMY_TURRET, 2650, 348);  // on platform y=380 (x:2500-2660)
+            SpawnEnemy(g, ENEMY_RUNNER, 2800, 470);
+
+            SpawnEnemy(g, ENEMY_TURRET, 3200, 348);  // on platform y=380 (x:3150-3330)
+            SpawnEnemy(g, ENEMY_SNIPER, 3450, 212);  // on platform y=260 (x:3400-3600)
+            SpawnEnemy(g, ENEMY_RUNNER, 3700, 470);
+            SpawnEnemy(g, ENEMY_RUNNER, 3900, 470);
             break;
+        }
 
-        case 2: // Alien Hive Core (Boss Stage)
+        case 2: {
+            // STAGE 3: THE HEART OF CYBER-CORE (Boss Stage)
+            // Linear approach leading to a wide boss arena with tactical platforms
             strcpy(lv->name, "STAGE 3: THE HEART OF CYBER-CORE");
-            lv->length = 2048.0f;
-            lv->spawn_point = (Vector2){ 100, 450 };
-            lv->boss_trigger_point = (Vector2){ 1200.0f, 0.0f }; // Triggers boss lock at X = 1200
+            lv->length = 2200.0f;
+            lv->spawn_point = (Vector2){ 80, 450 };
+            lv->boss_trigger_point = (Vector2){ 1050.0f, 0.0f };
             lv->bg_color = (Color){ 24, 10, 18, 255 };
             lv->platform_color = COL_NEON_PINK;
 
-            // Ground floor leading to the boss
-            AddPlatform(lv, 0, 520, 1900, 80, COL_NEON_PINK, false);
-            
-            // Floating sniper platform before boss
-            AddPlatform(lv, 300, 400, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 600, 300, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 900, 400, 300, 20, COL_NEON_BLUE, false);
+            // Approach corridor (0 to 1050)
+            AddPlatform(lv, 0, 520, 1050, 80, COL_NEON_PINK, false);
+            AddPlatform(lv, 250, 380, 160, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 550, 280, 180, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 800, 380, 150, 20, COL_NEON_BLUE, false);
 
-            // Boss arena platforming layout
-            AddPlatform(lv, 1200, 360, 200, 20, COL_NEON_BLUE, false);
-            AddPlatform(lv, 1200, 220, 200, 20, COL_NEON_BLUE, false);
+            // Boss arena floor split into segments with hazard gaps
+            AddPlatform(lv, 1050, 520, 250, 80, COL_NEON_PINK, false);  // 1050-1300
+            AddPlatform(lv, 1380, 520, 370, 80, COL_NEON_PINK, false);  // 1380-1750
+            AddPlatform(lv, 1830, 520, 370, 80, COL_NEON_PINK, false);  // 1830-2200
 
-            // Pre-boss capsules
-            SpawnCapsule(g, 500, 150, WEAPON_SPREAD);
-            SpawnCapsule(g, 1000, 150, WEAPON_FLAME);
+            // Boss arena tactical platforms (covers and height advantage)
+            AddPlatform(lv, 1100, 380, 200, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1450, 280, 220, 20, COL_NEON_BLUE, false);
+            AddPlatform(lv, 1600, 380, 200, 20, COL_NEON_BLUE, false);
 
-            // Snipers in approach
-            SpawnEnemy(g, ENEMY_SNIPER, 400, 368);
-            SpawnEnemy(g, ENEMY_SNIPER, 700, 268);
-            SpawnEnemy(g, ENEMY_SNIPER, 1000, 368);
+            // Hazard pits in arena (actual gaps in the floor)
+            AddPlatform(lv, 1300, 560, 80, 40, COL_NEON_PINK, true);
+            AddPlatform(lv, 1750, 560, 80, 40, COL_NEON_PINK, true);
+
+            // Pre-boss capsules  
+            SpawnCapsule(g, 400, 150, WEAPON_SPREAD);
+            SpawnCapsule(g, 800, 150, WEAPON_LASER);
+            SpawnCapsule(g, 1200, 150, WEAPON_FLAME);
+
+            // Approach enemies
+            SpawnEnemy(g, ENEMY_SNIPER, 350, 472);   // on ground y=520
+            SpawnEnemy(g, ENEMY_TURRET, 600, 248);   // on platform y=280 (x:550-730)
+            SpawnEnemy(g, ENEMY_SNIPER, 850, 332);   // on platform y=380 (x:800-950)
+            SpawnEnemy(g, ENEMY_RUNNER, 900, 470);
             break;
+        }
+    }
+
+    // Scale enemy health with level difficulty
+    float health_scale = 1.0f + (float)level_idx * 0.5f;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (g->enemies[i].active) {
+            g->enemies[i].health = (int)(g->enemies[i].health * health_scale);
+            g->enemies[i].max_health = g->enemies[i].health;
+        }
     }
 
     g->player.pos = lv->spawn_point;
@@ -599,6 +720,7 @@ static void InitGame(GameState *g) {
 
     g->screen = SCREEN_MENU;
     g->camera_shake = 0.0f;
+    g->kill_count = 0;
 
     LoadLevel(g, 0);
 }
@@ -1107,12 +1229,19 @@ static void DamagePlayer(GameState *g, float dmg) {
             // Respawn trigger shield
             p->shield = p->max_shield;
             p->invuln_timer = 2.0f;
-            p->pos = g->levels[g->current_level].spawn_point;
+            // Respawn at boss arena entrance if boss is active, otherwise at level start
+            if (g->boss_active) {
+                Vector2 boss_respawn = { g->levels[g->current_level].boss_trigger_point.x - 50.0f, 450.0f };
+                p->pos = boss_respawn;
+                p->last_safe_ground_pos = boss_respawn;
+            } else {
+                p->pos = g->levels[g->current_level].spawn_point;
+                p->last_safe_ground_pos = g->levels[g->current_level].spawn_point;
+            }
             p->vel = (Vector2){ 0, 0 };
             p->jump_rotation = 0;
             p->squash_x = 1.0f;
             p->squash_y = 1.0f;
-            p->last_safe_ground_pos = g->levels[g->current_level].spawn_point;
         }
     }
 }
@@ -1124,6 +1253,16 @@ static void UpdateGame(GameState *g, float dt) {
     Player *p = &g->player;
 
     if (g->screen != SCREEN_PLAY) return;
+
+    // Debug: F1 skips to boss level
+    if (IsKeyPressed(KEY_F1)) {
+        g->kill_count = 0;
+        g->player.shield = g->player.max_shield;
+        g->player.lives = 9;
+        g->player.weapon = WEAPON_SPREAD;
+        LoadLevel(g, 2);
+        return;
+    }
 
     // Decay timers
     if (p->invuln_timer > 0) p->invuln_timer -= dt;
@@ -1140,11 +1279,11 @@ static void UpdateGame(GameState *g, float dt) {
         if (!g->boss_active) {
             g->boss_active = true;
             g->boss_intro_timer = 2.0f;
-            // Spawn Boss segments on the right edge of stage screen
-            float boss_x = lv->length - 150.0f;
-            SpawnEnemy(g, ENEMY_BOSS_LEFT_TURRET, boss_x + 10, 200);
-            SpawnEnemy(g, ENEMY_BOSS_RIGHT_TURRET, boss_x + 10, 420);
-            SpawnEnemy(g, ENEMY_BOSS_CORE, boss_x + 16, 290);
+            // Spawn Boss segments at fixed arena position (visible in camera lock)
+            float boss_x = lv->boss_trigger_point.x + 600.0f;
+            SpawnEnemy(g, ENEMY_BOSS_LEFT_TURRET, boss_x, 200);
+            SpawnEnemy(g, ENEMY_BOSS_RIGHT_TURRET, boss_x, 420);
+            SpawnEnemy(g, ENEMY_BOSS_CORE, boss_x + 6, 290);
         }
     }
 
@@ -1586,13 +1725,16 @@ static void UpdateGame(GameState *g, float dt) {
 
                 if (e->health <= 0) {
                     e->active = false;
+                    g->kill_count++;
                     
                     // Explosion SFX
                     PlaySynthSFX(160.0f, 35.0f, 0.42f, 0.75f, true);
 
-                    // Explosion particles
-                    AddParticleEx(g, (Vector2){ e->pos.x + e->size.x/2, e->pos.y + e->size.y/2 }, COL_NEON_ORANGE, 200.0f, 5.0f, PARTICLE_SPARK, 0.6f, 25);
-                    g->camera_shake = 0.22f;
+                    // Bigger explosion for boss parts
+                    int boom_particles = (e->type == ENEMY_BOSS_CORE || e->type == ENEMY_BOSS_LEFT_TURRET || e->type == ENEMY_BOSS_RIGHT_TURRET) ? 50 : 25;
+                    float boom_size = (e->type == ENEMY_BOSS_CORE) ? 8.0f : 5.0f;
+                    AddParticleEx(g, (Vector2){ e->pos.x + e->size.x/2, e->pos.y + e->size.y/2 }, COL_NEON_ORANGE, 200.0f, boom_size, PARTICLE_SPARK, 0.6f, boom_particles);
+                    g->camera_shake = (e->type == ENEMY_BOSS_CORE) ? 0.8f : 0.22f;
 
                     if (e->type == ENEMY_BOSS_CORE) {
                         core_destroyed = true;
@@ -1639,8 +1781,9 @@ static void UpdateGame(GameState *g, float dt) {
     /* ── Camera Tracking ── */
     float target_x = p->pos.x;
     if (g->boss_active) {
-        // Lock camera focused on the boss arena layout
-        target_x = lv->boss_trigger_point.x + SCREEN_W / 3.0f;
+        // Follow player but don't scroll left past boss arena entrance
+        float arena_center = lv->boss_trigger_point.x + SCREEN_W / 3.0f;
+        target_x = fmaxf(p->pos.x, arena_center);
     }
 
     g->camera.target.x = target_x;
@@ -2163,7 +2306,12 @@ static void DrawGame(GameState *g) {
     // Lives counter
     char lives_txt[32];
     snprintf(lives_txt, sizeof(lives_txt), "LIVES: %d", p->lives);
-    DrawText(lives_txt, 240, 50, 16, COL_NEON_PINK);
+    DrawText(lives_txt, 240, 44, 16, COL_NEON_PINK);
+
+    // Kill counter
+    char kills_txt[32];
+    snprintf(kills_txt, sizeof(kills_txt), "KILLS: %d", g->kill_count);
+    DrawText(kills_txt, 240, 64, 14, COL_NEON_BLUE);
 
     // Weapon Type label
     char weap_txt[64];
